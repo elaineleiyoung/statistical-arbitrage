@@ -7,6 +7,8 @@ import statsmodels.tsa.stattools as ts #importing statistical tools for time ser
 from scipy.stats import linregress #import linear regression code
 import yfinance as yf #importing Yahoo Finance database
 import seaborn as sns
+import statsmodels.api as sm
+from statsmodels.tsa.stattools import coint
 import datetime #importing date/time data
 
 #GOAL: COMPARE 10 FINANCIAL SERVICES STOCKS, FIND THE OPTIMAL COINTEGRATED PAIR AND DO PAIRS-TESTING ON IT
@@ -20,18 +22,8 @@ todate = datetime.datetime(2023, 2, 22)
 
 #data = pd.DataFrame()
 
-compare = 'JPM'
-
-#data['V'] = data['Adj Close']['V']
-#data['JPM'] = data['Adj Close']['JPM']
-#data['MA'] = data['Adj Close']['MA']
-#data['BAC'] = data['Adj Close']['BAC']
-#data['C'] = data['Adj Close']['C']
-#data['MS'] = data['Adj Close']['MS']
-#data['HSBC'] = data['Adj Close']['HSBC']
-#data['WFC'] = data['Adj Close']['WFC']
-#data['AXP'] = data['Adj Close']['AXP']
-#data['GS'] = data['Adj Close']['GS']
+compare = 'MA'
+#crypto?
 
 #pearson correlation coefficient, only those above 0.8
 
@@ -59,31 +51,77 @@ for i in range(0,10):
     #calculate r score
     r = np.corrcoef(data['Adj Close'][compare], data['Adj Close'][tickername])
 
-    print("Ticker JPM vs {}, p is {}, r is {}".format(tickername, p, r))
+    print("Ticker MA vs {}, p is {}, r is {}".format(tickername, p, r))
     #good arbitrage pair
     if p < 0.05 or r.any() > 0.80:
         np.append(success, tickername)
 
 print(success)
+#printing correlation matrix to get basic idea of relationship
+fig, ax1 = plt.subplots(figsize=(10,7))
+sns.heatmap(data['Adj Close'].pct_change().corr(method='pearson'), ax=ax1, cmap='coolwarm', annot=True, fmt=".2f")
+ax1.set_title('Assets Correlation Matrix')
+plt.show()
 
-def find_cointegrated_pairs(data):
+#print p-value matrix? 
+def coint_pairs(data):
     n = data.shape[1]
     pvalue_matrix = np.ones((n,n))
     keys = data.keys()
     pairs = []
     for i in range(n):
-        for j in range(i+1,n):
-            result = ts.coint(data[keys[i]], data[keys[j]])
-            pvalue_matrix[i,j] = result[1]
+        for j in range(i+1, n):
+            result = coint(data[keys[i]], data[keys[j]])
+            pvalue_matrix[i, j] = result[1]
             if result[1] < 0.05:
                 pairs.append((keys[i], keys[j]))
-    return pvalue_matrix, pairs
+    return pvalue_matrix, pairs 
 
-pvalues, pairs = find_cointegrated_pairs(train_close)
-print(pairs)
-fig, ax = plt.subplots(figsize=(10,7))
-sns.heatmap(pvalues, xticklabels = train_close.columns, yticklabels = train_close.columns, cmap = 'RdYlGn_r', annot = True, fmt=".2f", mask = (pvalues >= 0.99))
-ax.set_title('Assets Cointregation Matrix p-values Between Pairs')
+model = sm.OLS(data['Adj Close']['MA'], data['Adj Close']['V']).fit()
+#asset 1 is JPM, asset 2 is MA
+
+plt.rc('figure', figsize=(12,7))
+plt.text(0.20, 0.30, str(model.summary()), {'fontsize': 10}, fontproperties = 'monospace')
+plt.axis('off')
 plt.tight_layout()
-plt.savefig('images/chart2', dpi = 300)     
+plt.subplots_adjust(left=-0.1, right=0.8, top=0.7, bottom=0.1)
+plt.show()
+#plt.savefig('images/chart4', dpi=300)
+
+pvalues, pairs = coint_pairs(data['Adj Close'])
+fig, ax2 = plt.subplots(figsize=(10,7))
+sns.heatmap(pvalues, xticklabels = data['Adj Close'].columns, yticklabels = data['Adj Close'].columns, cmap = 'RdYlGn_r', annot = True, fmt = ".2f", mask = (pvalues >= 0.99))
+ax2.set_title('Assets Cointregation Matrix p-values Between Pairs')
+plt.tight_layout()
+plt.show()
+
+hedger = model.params[0]
+spread = data['Adj Close']['MA'] - (hedger*data['Adj Close']['V'])
+plt.plot(spread)
+plt.xlabel('Date')
+plt.ylabel('Spread')
+plt.grid(True)
+#ax = spread.plot(figsize=(12,6), title = "Pair's Spread")
+#ax.set_ylabel("Spread")
+#ax.grid(True)
+
+print(hedger)
+
+#test graphs to ensure hedging ratio normalizes graphs
+plt.plot(np.log(data['Adj Close']['MA']))
+plt.plot(np.log(data['Adj Close']['V'])*hedger)
+plt.xlabel('Date')
+plt.ylabel('Price Normalized')
+plt.show()
+#spread = np.log(data['Adj Close']['JPM']) - (hedger * np.log(data['Adj Close']['MA']))
+
+#we find that JPM and MA is most cointegrated (though not <0.05), also highly correlated
+plt.plot(np.log(data['Adj Close']['MA'])-0.90)
+plt.plot(np.log(data['Adj Close']['V']))
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.show()
+#how to normalize data? 
+# compare my p-values to code's p-values
+
 
